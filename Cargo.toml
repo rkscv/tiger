@@ -1,0 +1,13 @@
+[package]
+name = "tiger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pest = "2.7"
+pest_derive = "2.7"
+paste = "1.0"
+thiserror = "1.0"
+ariadne = { version = "0.3", features = ["auto-color"] }
+lazy_static = "1.4"
+clap = { version = "4.4", features = ["derive"] }

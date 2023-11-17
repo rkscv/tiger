@@ -1,0 +1,58 @@
+ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+ty        = _{ array_ty | record_ty | ident }
+record_ty =  { "{" ~ fields ~ "}" }
+array_ty  =  { "array" ~ "of" ~ ident }
+fields    =  { (ident ~ ":" ~ ident ~ ("," ~ ident ~ ":" ~ ident)*)? }
+ty_decl   =  { "type" ~ ident ~ "=" ~ ty }
+var_decl  =  { "var" ~ ident ~ (":" ~ ident)? ~ ":=" ~ expr }
+fun_decl  =  { "function" ~ ident ~ "(" ~ fields ~ ")" ~ (":" ~ ident)? ~ "=" ~ expr }
+decls     = _{ (ty_decl | var_decl | fun_decl)* }
+
+lvalue        = { ident ~ (record_access | array_access)* }
+record_access = { "." ~ ident }
+array_access  = { "[" ~ expr ~ "]" }
+
+newline   =  { "\\n" }
+tab       =  { "\\t" }
+ctrl      =  { "\\^" ~ (ASCII_ALPHA_UPPER | "[" | "\\" | "]" | "^" | "_" | "?") }
+decimal   =  { "\\" ~ ASCII_DIGIT{3} }
+quotmark  =  { "\\\"" }
+backslash =  { "\\\\" }
+ignore    =  { "\\" ~ WHITESPACE* ~ "\\" }
+char      =  { !("\"" | "\\") ~ ANY }
+string    = ${ "\"" ~ (newline | tab | ctrl | decimal | quotmark | backslash | ignore | char)* ~ "\"" }
+
+nil     =  { "nil" }
+seq     =  { "(" ~ (expr ~ (";" ~ expr)*)? ~ ")" }
+int     = @{ ASCII_DIGIT+ }
+call    =  { ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+record  =  { ident ~ "{" ~ (ident ~ "=" ~ expr ~ ("," ~ ident ~ "=" ~ expr)*)? ~ "}" }
+array   =  { ident ~ "[" ~ expr ~ "]" ~ "of" ~ expr }
+assign  =  { lvalue ~ ":=" ~ expr }
+if      =  { "if" ~ expr ~ "then" ~ expr ~ ("else" ~ expr)? }
+while   =  { "while" ~ expr ~ "do" ~ expr }
+for     =  { "for" ~ ident ~ ":=" ~ expr ~ "to" ~ expr ~ "do" ~ expr }
+break   =  { "break" }
+let     =  { "let" ~ decls ~ "in" ~ let_seq ~ "end" }
+let_seq =  { (expr ~ (";" ~ expr)*)? }
+atom    = _{ (minus ~ expr) | nil | seq | int | string | if | while | for | break | let | call | record | array | assign | lvalue }
+minus   =  { "-" }
+add     =  { "+" }
+sub     =  { "-" }
+mul     =  { "*" }
+div     =  { "/" }
+gt      =  { ">" }
+ge      =  { ">=" }
+lt      =  { "<" }
+le      =  { "<=" }
+ne      =  { "<>" }
+eq      =  { "=" }
+and     =  { "&" }
+or      =  { "|" }
+expr    =  { atom ~ ((add | sub | mul | div | ge | gt | ne | le | lt | eq | and | or) ~ atom)* }
+
+main = { SOI ~ expr ~ EOI }
+
+WHITESPACE = _{ " " | "\r" | "\n" | "\t" }
+COMMENT    = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }

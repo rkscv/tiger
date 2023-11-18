@@ -81,8 +81,6 @@ pub enum ErrorVariant {
     DivideByZero,
     #[error("nil record dereference")]
     DerefNilRecord,
-    #[error("nil array dereference")]
-    DerefNilArray,
     #[error("negative index {0}")]
     NegtiveIndex(isize),
     #[error("index {0} out of range")]

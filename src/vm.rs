@@ -101,7 +101,6 @@ impl<'a> VM<'a> {
                             .get_mut(i)
                             .ok_or_else(|| index.with_inner(ErrorVariant::IndexOutOfRange(i)))?)
                     }
-                    Value::Nil => Err(index.with_inner(ErrorVariant::DerefNilArray))?,
                     _ => unreachable!(),
                 }
             }

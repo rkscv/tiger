@@ -261,7 +261,7 @@ impl<'a> Envs<'a> {
                         }),
                         _ => Err(WithSpan {
                             span,
-                            inner: ErrorVariant::UnsupportedOperandType {
+                            inner: ErrorVariant::UnsupportedOperandTypes {
                                 op,
                                 lty: lty.to_string(),
                                 rty: rty.to_string(),

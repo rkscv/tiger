@@ -45,7 +45,7 @@ pub enum ErrorVariant {
     #[error("{0}")]
     ParseIntError(num::ParseIntError),
     #[error("unsupported operand type(s) '{lty}' and '{rty}' for '{op}'")]
-    UnsupportedOperandType { op: Op, lty: String, rty: String },
+    UnsupportedOperandTypes { op: Op, lty: String, rty: String },
     #[error("type mismatch, expected '{expected}', found '{found}'")]
     MismatchedTypes { expected: String, found: String },
     #[error("'{name}' takes {expected} argument(s) but {found} were given")]
@@ -60,26 +60,26 @@ pub enum ErrorVariant {
     DuplicateDefinitions(String),
     #[error("recursive type '{0}'")]
     RecursiveType(String),
-    #[error("unknown type of '{0}'")]
+    #[error("type of '{0}' is unknown")]
     UnknownType(String),
     #[error("name '{0}' is not defined")]
     NotDefined(String),
     #[error("'{0}' is not callable")]
     NotCallable(String),
-    #[error("'{0}' is not record")]
+    #[error("'{0}' is not a record")]
     NotRecord(String),
-    #[error("record has no field '{0}'")]
+    #[error("the record has no field '{0}'")]
     NoSuchField(String),
     #[error("unexpected record field '{0}'")]
     UnexpectedField(String),
-    #[error("'{0}' is not array")]
+    #[error("'{0}' is not a array")]
     NotArray(String),
     #[error("break outside loop")]
     BreakOutsideLoop,
 
     #[error("divide by zero")]
     DivideByZero,
-    #[error("nil record dereference")]
+    #[error("nil-valued record dereference")]
     DerefNilRecord,
     #[error("negative index {0}")]
     NegtiveIndex(isize),

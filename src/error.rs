@@ -72,7 +72,7 @@ pub enum ErrorVariant {
     NoSuchField(String),
     #[error("unexpected record field '{0}'")]
     UnexpectedField(String),
-    #[error("'{0}' is not a array")]
+    #[error("'{0}' is not an array")]
     NotArray(String),
     #[error("break outside loop")]
     BreakOutsideLoop,

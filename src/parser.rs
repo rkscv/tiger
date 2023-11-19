@@ -36,13 +36,6 @@ lazy_static::lazy_static! {
     };
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum DeclType {
-    Ty,
-    Var,
-    Fun,
-}
-
 fn parse_fields(pair: Pair<Rule>) -> Result<Vec<Field>, Error> {
     let mut pairs = pair.into_inner();
     let mut fields = Vec::new();
@@ -175,14 +168,14 @@ impl<'a> Envs<'a> {
             lvalue = match suffix.as_rule() {
                 Rule::record_access => {
                     let field: WithSpan<_> = suffix.into_inner().next().unwrap().into();
-                    let (offset, (_, ty)) = match &*lvalue.ty {
-                        Type::Record { fields, .. } => fields
-                            .iter()
-                            .enumerate()
-                            .find(|(_, (f, _))| f == *field)
-                            .ok_or_else(|| field.map(ErrorVariant::NoSuchField))?,
-                        _ => return Err(var.with_inner(lvalue).map(ErrorVariant::NotRecord))?,
+                    let Type::Record { fields, .. } = &*lvalue.ty else {
+                        return Err(var.with_inner(lvalue).map(ErrorVariant::NotRecord))?;
                     };
+                    let (offset, (_, ty)) = fields
+                        .iter()
+                        .enumerate()
+                        .find(|(_, (f, _))| f == *field)
+                        .ok_or_else(|| field.map(ErrorVariant::NoSuchField))?;
                     LValue {
                         ty: ty.clone(),
                         access: Access::Field(lvalue.into(), field, offset),
@@ -334,9 +327,8 @@ impl<'a> Envs<'a> {
                 let args = pairs
                     .map(|pair| self.parse_with_span(pair, breakable))
                     .try_collect::<Vec<_>>()?;
-                let (fields, ret_ty) = match &**self.venv.get(&name)? {
-                    Type::Fun { fields, ret_ty } => (fields, ret_ty.clone()),
-                    _ => return Err(name.map(ErrorVariant::NotCallable))?,
+                let Type::Fun { fields, ret_ty } = &**self.venv.get(&name)? else {
+                    return Err(name.map(ErrorVariant::NotCallable))?;
                 };
                 if fields.len() != args.len() {
                     return Err(name.with_inner(ErrorVariant::MismatchedArgumentNum {
@@ -348,16 +340,20 @@ impl<'a> Envs<'a> {
                 for (field, arg) in fields.iter().zip(args.iter()) {
                     arg.expect(field)?;
                 }
-                Ok(Expr::Call { name, args, ret_ty })
+                Ok(Expr::Call {
+                    name,
+                    args,
+                    ret_ty: ret_ty.clone(),
+                })
             }
             Rule::record => {
                 let mut pairs = pair.into_inner();
                 let t = pairs.next().unwrap().into();
                 let ty = self.tenv.get(&t)?.clone();
-                let mut fields = match &*ty {
-                    Type::Record { fields, .. } => fields.iter(),
-                    _ => return Err(t.map(ErrorVariant::NotRecord))?,
+                let Type::Record { fields, .. } = &*ty else {
+                    return Err(t.map(ErrorVariant::NotRecord))?;
                 };
+                let mut fields = fields.iter();
                 let mut exprs = Vec::new();
                 while let Some(field) = pairs.next() {
                     let expr = self.parse_with_span(pairs.next().unwrap(), breakable)?;
@@ -465,6 +461,12 @@ impl<'a> Envs<'a> {
                 }
             }
             Rule::r#let => {
+                #[derive(Clone, Copy, PartialEq)]
+                enum DeclType {
+                    Ty,
+                    Var,
+                    Fun,
+                }
                 let mut decls: Vec<Vec<_>> = Vec::new();
                 let mut pairs = pair.into_inner().peekable();
                 let mut last = None;

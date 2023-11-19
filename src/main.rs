@@ -1,7 +1,8 @@
 use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
 use clap::Parser;
-use std::{fs, io};
-use tiger::{error::Error, parser, vm};
+use pest::error::InputLocation;
+use std::{borrow::Cow, fs, io};
+use tiger::{ast::Span, error::Error, parser, vm};
 
 /// Tiger language interpreter
 #[derive(Parser, Debug)]
@@ -20,11 +21,22 @@ fn main() -> io::Result<()> {
     let file_name = args.file_name.as_str();
     let src = fs::read_to_string(file_name)?;
     if let Err(error) = exec(&src) {
-        let span = error.span();
+        let span = match &error {
+            Error::Variant(error) => error.span,
+            Error::ParseError(error) => match error.location {
+                InputLocation::Pos(pos) => Span(pos, pos),
+                InputLocation::Span((start, end)) => Span(start, end),
+            },
+            Error::Break => unreachable!(),
+        };
         Report::build(ReportKind::Error, file_name, span.0)
             .with_label(
                 Label::new((file_name, span.0..span.1))
-                    .with_message(error.message())
+                    .with_message(match &error {
+                        Error::Variant(error) => Cow::Owned(error.to_string()),
+                        Error::ParseError(error) => error.variant.message(),
+                        Error::Break => unreachable!(),
+                    })
                     .with_color(ColorGenerator::new().next()),
             )
             .finish()

@@ -1,9 +1,8 @@
 use crate::{
-    ast::{Op, Span, WithSpan},
+    ast::{Op, WithSpan},
     parser::Rule,
 };
-use pest::error::InputLocation;
-use std::{borrow::Cow, fmt::Debug, io, num};
+use std::{fmt::Debug, io, num};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -11,27 +10,6 @@ pub enum Error {
     Variant(WithSpan<ErrorVariant>),
     ParseError(Box<pest::error::Error<Rule>>),
     Break,
-}
-
-impl Error {
-    pub fn span(&self) -> Span {
-        match self {
-            Error::Variant(error) => error.span,
-            Error::ParseError(error) => match error.location {
-                InputLocation::Pos(pos) => Span(pos, pos),
-                InputLocation::Span((start, end)) => Span(start, end),
-            },
-            Error::Break => unreachable!(),
-        }
-    }
-
-    pub fn message(&self) -> Cow<'_, str> {
-        match self {
-            Error::Variant(error) => Cow::Owned(error.to_string()),
-            Error::ParseError(error) => error.variant.message(),
-            Error::Break => unreachable!(),
-        }
-    }
 }
 
 impl From<WithSpan<ErrorVariant>> for Error {

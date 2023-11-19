@@ -1,7 +1,6 @@
 #![feature(assert_matches)]
 #![feature(get_mut_unchecked)]
 #![feature(iterator_try_collect)]
-#![feature(slice_group_by)]
 #![feature(test)]
 
 #[macro_use]
@@ -96,17 +95,15 @@ mod tests {
 
     #[bench]
     fn bench_samples(b: &mut Bencher) -> io::Result<()> {
-        let samples = fs::read_dir("testcases")?.try_collect::<Vec<_>>()?;
-        let samples = samples
-            .iter()
-            .map(|sample| sample.file_name().into_string().unwrap())
-            .zip(
-                samples
-                    .iter()
-                    .map(|sample| fs::read_to_string(sample.path()))
-                    .try_collect::<Vec<_>>()?,
-            )
-            .collect::<Vec<_>>();
+        let samples = fs::read_dir("testcases")?
+            .map(|sample| -> io::Result<_> {
+                let sample = sample?;
+                Ok((
+                    sample.file_name().into_string().unwrap(),
+                    fs::read_to_string(sample.path())?,
+                ))
+            })
+            .try_collect::<Vec<_>>()?;
         b.iter(|| {
             for (file_name, src) in &samples {
                 _ = test(file_name, src);

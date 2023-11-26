@@ -56,8 +56,8 @@ fn parse_fields(pair: Pair<Rule>) -> Result<Vec<Field>, Error> {
 }
 
 struct Envs<'a> {
-    tenv: Env<'a, ArcType>,
-    venv: Env<'a, ArcType>,
+    tenv: Env<'a, ArcType<'a>>,
+    venv: Env<'a, ArcType<'a>>,
 }
 
 impl<'a> Envs<'a> {
@@ -101,7 +101,7 @@ impl<'a> Envs<'a> {
         'a: loop {
             for (&name, ty) in self.tenv.last() {
                 if let Type::Unknown(ty) = &**ty {
-                    if !traces.entry(name).or_default().insert(ty.inner.clone()) {
+                    if !traces.entry(name).or_default().insert(ty.inner) {
                         return Err(ty.map(ErrorVariant::RecursiveType))?;
                     } else if let Ok(ty) = self.tenv.get(ty).cloned() {
                         self.tenv.unchecked_insert(name, ty);
@@ -174,7 +174,7 @@ impl<'a> Envs<'a> {
                     let (offset, (_, ty)) = fields
                         .iter()
                         .enumerate()
-                        .find(|(_, (f, _))| f == *field)
+                        .find(|(_, (f, _))| *f == *field)
                         .ok_or_else(|| field.map(ErrorVariant::NoSuchField))?;
                     LValue {
                         ty: ty.clone(),
@@ -358,13 +358,13 @@ impl<'a> Envs<'a> {
                 while let Some(field) = pairs.next() {
                     let expr = self.parse_with_span(pairs.next().unwrap(), breakable)?;
                     expr.expect(match fields.next() {
-                        Some((f, ty)) if f == field.as_str() => ty,
+                        Some((f, ty)) if *f == field.as_str() => ty,
                         _ => return Err(WithSpan::from(field).map(ErrorVariant::UnexpectedField))?,
                     })?;
                     exprs.push(expr.inner);
                 }
                 if let Some((field, _)) = fields.next() {
-                    return Err(t.with_inner(ErrorVariant::UninitializedField(field.into())))?;
+                    return Err(t.with_inner(ErrorVariant::UninitializedField(field.to_string())))?;
                 }
                 Ok(Expr::Record { fields: exprs, ty })
             }
@@ -503,26 +503,26 @@ impl<'a> Envs<'a> {
                             let mut pairs = pair.into_inner();
                             let name = pairs.next().unwrap().into();
                             let ty = pairs.next().unwrap();
-                            let get = |ty: &WithSpan<&str>| {
+                            let get = |ty: WithSpan<&'a str>| {
                                 self.tenv
-                                    .get(ty)
+                                    .get(&ty)
                                     .cloned()
-                                    .unwrap_or_else(|_| Type::Unknown(ty.into()).into())
+                                    .unwrap_or_else(|_| Type::Unknown(ty).into())
                             };
                             self.tenv.insert(
                                 &name,
                                 match ty.as_rule() {
-                                    Rule::ident => get(&ty.into()),
+                                    Rule::ident => get(ty.into()),
                                     Rule::array_ty => Type::Array {
-                                        name: name.to_string(),
-                                        ty: get(&ty.into_inner().next().unwrap().into()),
+                                        name: &name,
+                                        ty: get(ty.into_inner().next().unwrap().into()),
                                     }
                                     .into(),
                                     Rule::record_ty => Type::Record {
-                                        name: name.to_string(),
+                                        name: &name,
                                         fields: parse_fields(ty.into_inner().next().unwrap())?
                                             .into_iter()
-                                            .map(|field| (field.name.to_string(), get(&field.ty)))
+                                            .map(|field| (field.name, get(field.ty)))
                                             .collect(),
                                     }
                                     .into(),

@@ -4,7 +4,7 @@ use crate::{
 };
 use pest::{iterators::Pair, RuleType};
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Cow,
     fmt::Display,
     ops::{Deref, DerefMut},
     rc::Rc,
@@ -12,10 +12,10 @@ use std::{
 };
 
 lazy_static::lazy_static! {
-    pub static ref UNIT: ArcType = Type::Unit.into();
-    pub static ref NIL: ArcType = Type::Nil.into();
-    pub static ref INT: ArcType = Type::Int.into();
-    pub static ref STRING: ArcType = Type::String.into();
+    pub static ref UNIT: ArcType<'static> = Type::Unit.into();
+    pub static ref NIL: ArcType<'static> = Type::Nil.into();
+    pub static ref INT: ArcType<'static> = Type::Int.into();
+    pub static ref STRING: ArcType<'static> = Type::String.into();
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -68,7 +68,7 @@ pub enum Decl<'a> {
     Fun {
         name: &'a str,
         fields: Vec<Field<'a>>,
-        ret_ty: ArcType,
+        ret_ty: ArcType<'a>,
         raw_body: Option<Pair<'a, Rule>>,
         body: Option<Rc<Expr<'a>>>,
     },
@@ -84,7 +84,7 @@ pub enum Access<'a> {
 #[derive(Debug, Clone)]
 pub struct LValue<'a> {
     pub access: Access<'a>,
-    pub ty: ArcType,
+    pub ty: ArcType<'a>,
 }
 
 impl Display for LValue<'_> {
@@ -115,12 +115,12 @@ pub enum Expr<'a> {
     Seq(Vec<Self>),
     Record {
         fields: Vec<Self>,
-        ty: ArcType,
+        ty: ArcType<'a>,
     },
     Array {
         n: Box<WithSpan<Self>>,
         v: Box<Self>,
-        ty: ArcType,
+        ty: ArcType<'a>,
     },
     BinOp {
         lhs: Box<Self>,
@@ -149,7 +149,7 @@ pub enum Expr<'a> {
     Call {
         name: WithSpan<&'a str>,
         args: Vec<WithSpan<Self>>,
-        ret_ty: ArcType,
+        ret_ty: ArcType<'a>,
     },
     Assign {
         lvalue: LValue<'a>,
@@ -157,8 +157,8 @@ pub enum Expr<'a> {
     },
 }
 
-impl Expr<'_> {
-    pub fn ty(&self) -> &ArcType {
+impl<'a> Expr<'a> {
+    pub fn ty(&self) -> &ArcType<'a> {
         match self {
             Self::Nil => &NIL,
             Self::String(_) => &STRING,
@@ -186,9 +186,9 @@ impl Expr<'_> {
 }
 
 #[derive(Clone, Debug)]
-pub struct ArcType(Arc<Type>);
+pub struct ArcType<'a>(Arc<Type<'a>>);
 
-impl Display for ArcType {
+impl Display for ArcType<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match &*self.0 {
             Type::Unit => "unit",
@@ -203,27 +203,27 @@ impl Display for ArcType {
     }
 }
 
-impl From<Type> for ArcType {
-    fn from(value: Type) -> Self {
+impl<'a> From<Type<'a>> for ArcType<'a> {
+    fn from(value: Type<'a>) -> Self {
         Self(Arc::new(value))
     }
 }
 
-impl Deref for ArcType {
-    type Target = Type;
+impl<'a> Deref for ArcType<'a> {
+    type Target = Type<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for ArcType {
+impl DerefMut for ArcType<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { Arc::get_mut_unchecked(&mut self.0) }
     }
 }
 
-impl PartialEq for ArcType {
+impl PartialEq for ArcType<'_> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
@@ -249,23 +249,23 @@ impl WithSpan<Expr<'_>> {
 }
 
 #[derive(Debug)]
-pub enum Type {
-    Unknown(WithSpan<String>),
+pub enum Type<'a> {
+    Unknown(WithSpan<&'a str>),
     Unit,
     Int,
     String,
     Nil,
     Array {
-        name: String,
-        ty: ArcType,
+        name: &'a str,
+        ty: ArcType<'a>,
     },
     Record {
-        name: String,
-        fields: Vec<(String, ArcType)>,
+        name: &'a str,
+        fields: Vec<(&'a str, ArcType<'a>)>,
     },
     Fun {
-        fields: Vec<ArcType>,
-        ret_ty: ArcType,
+        fields: Vec<ArcType<'a>>,
+        ret_ty: ArcType<'a>,
     },
 }
 
@@ -311,18 +311,6 @@ impl<T> Deref for WithSpan<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl<T> From<&WithSpan<T>> for WithSpan<String>
-where
-    T: Borrow<str>,
-{
-    fn from(value: &WithSpan<T>) -> Self {
-        Self {
-            span: value.span,
-            inner: value.inner.borrow().into(),
-        }
     }
 }
 

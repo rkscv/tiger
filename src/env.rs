@@ -5,16 +5,17 @@ use crate::{
 use std::{borrow::Borrow, collections::BTreeMap, rc::Rc};
 
 #[derive(Debug, Default)]
-pub struct Inner<'a, V> {
-    env: BTreeMap<&'a str, V>,
-    prev: Option<Env<'a, V>>,
+pub struct Inner<K, V> {
+    env: BTreeMap<K, V>,
+    prev: Option<Env<K, V>>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Env<'a, V>(Rc<Inner<'a, V>>);
+pub struct Env<K, V>(Rc<Inner<K, V>>);
 
-impl<'a, V> Env<'a, V>
+impl<K, V> Env<K, V>
 where
+    K: Clone + Ord,
     V: Clone,
 {
     pub fn new() -> Self {
@@ -24,7 +25,7 @@ where
         }))
     }
 
-    pub fn last(&self) -> &BTreeMap<&'a str, V> {
+    pub fn last(&self) -> &BTreeMap<K, V> {
         &self.0.env
     }
 
@@ -39,64 +40,69 @@ where
         self.0 = self.0.prev.clone().unwrap().0;
     }
 
-    pub fn insert(&mut self, name: &WithSpan<&'a str>, value: V) -> Result<(), Error> {
+    pub fn insert(&mut self, name: &WithSpan<K>, value: V) -> Result<(), Error>
+    where
+        K: Copy + ToString,
+    {
         match unsafe { Rc::get_mut_unchecked(&mut self.0) }
             .env
-            .insert(name, value)
+            .insert(name.inner, value)
         {
             Some(_) => Err(name.map(ErrorVariant::DuplicateDefinitions))?,
             None => Ok(()),
         }
     }
 
-    pub fn unchecked_insert(&mut self, name: &'a str, value: V) {
+    pub fn unchecked_insert(&mut self, name: K, value: V) {
         unsafe { Rc::get_mut_unchecked(&mut self.0) }
             .env
             .insert(name, value);
     }
 
+    pub fn find<Q: ?Sized>(&self, name: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        let inner = &self.0;
+        inner
+            .env
+            .get(name)
+            .or_else(|| inner.prev.as_ref().and_then(|env| env.find(name)))
+    }
+
+    pub fn find_mut<Q: ?Sized>(&mut self, name: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        let inner = unsafe { Rc::get_mut_unchecked(&mut self.0) };
+        inner
+            .env
+            .get_mut(name)
+            .or_else(|| inner.prev.as_mut().and_then(|env| env.find_mut(name)))
+    }
+}
+
+impl<V> Env<&str, V>
+where
+    V: Clone,
+{
     pub fn get<I>(&self, name: &WithSpan<I>) -> Result<&V, Error>
     where
         I: Borrow<str> + ToString,
     {
-        get_from_env(name, self)
+        Ok(self
+            .find(name.inner.borrow())
+            .ok_or_else(|| name.map(ErrorVariant::NotDefined))?)
     }
 
     pub fn get_mut<I>(&mut self, name: &WithSpan<I>) -> Result<&mut V, Error>
     where
         I: Borrow<str> + ToString,
     {
-        get_mut_from_env(name, self)
-    }
-}
-
-fn get_from_env<'a, V, I>(name: &WithSpan<I>, env: &'a Env<'a, V>) -> Result<&'a V, Error>
-where
-    I: Borrow<str> + ToString,
-{
-    let inner = &env.0;
-    match inner.env.get(name.inner.borrow()) {
-        Some(value) => Ok(value),
-        None => match &inner.prev {
-            Some(env) => get_from_env(name, env),
-            None => Err(name.map(ErrorVariant::NotDefined))?,
-        },
-    }
-}
-
-fn get_mut_from_env<'a, V, I>(
-    name: &WithSpan<I>,
-    env: &'a mut Env<'_, V>,
-) -> Result<&'a mut V, Error>
-where
-    I: Borrow<str> + ToString,
-{
-    let inner = unsafe { Rc::get_mut_unchecked(&mut env.0) };
-    match inner.env.get_mut(name.inner.borrow()) {
-        Some(value) => Ok(value),
-        None => match &mut inner.prev {
-            Some(env) => get_mut_from_env(name, env),
-            None => Err(name.map(ErrorVariant::NotDefined))?,
-        },
+        Ok(self
+            .find_mut(name.inner.borrow())
+            .ok_or_else(|| name.map(ErrorVariant::NotDefined))?)
     }
 }

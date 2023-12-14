@@ -33,7 +33,7 @@ pub enum Value<'a> {
     Fun {
         fields: Rc<Vec<&'a str>>,
         body: Rc<Expr<'a>>,
-        venv: Env<'a, Self>,
+        venv: Env<&'a str, Self>,
     },
 }
 
@@ -64,7 +64,7 @@ impl WithSpan<Value<'_>> {
 }
 
 struct VM<'a> {
-    venv: Env<'a, Value<'a>>,
+    venv: Env<&'a str, Value<'a>>,
 }
 
 impl<'a> VM<'a> {

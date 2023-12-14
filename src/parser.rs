@@ -56,8 +56,8 @@ fn parse_fields(pair: Pair<Rule>) -> Result<Vec<Field>, Error> {
 }
 
 struct Envs<'a> {
-    tenv: Env<'a, ArcType<'a>>,
-    venv: Env<'a, ArcType<'a>>,
+    tenv: Env<&'a str, ArcType<'a>>,
+    venv: Env<&'a str, ArcType<'a>>,
 }
 
 impl<'a> Envs<'a> {

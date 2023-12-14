@@ -25,9 +25,9 @@ mod tests {
     use test::Bencher;
 
     fn test(file_name: &str, src: &str) -> Result<(), Error> {
-        let ast = parser::parse(src)?;
+        let (ast, syms) = parser::parse(src)?;
         if !["merge.tig", "test6.tig", "test7.tig", "test18.tig"].contains(&file_name) {
-            vm::eval(&ast)?;
+            vm::eval(&ast, syms)?;
         }
         Ok(())
     }

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Access, Decl, Expr, LValue, Op, WithSpan},
+    ast::{Access, Decl, Expr, LValue, Op, Symbol, Symbols, WithSpan, ID},
     env::Env,
     error::{Error, ErrorVariant},
 };
@@ -31,9 +31,9 @@ pub enum Value<'a> {
     Not,
     Exit,
     Fun {
-        fields: Rc<Vec<&'a str>>,
+        fields: Rc<Vec<Symbol<'a>>>,
         body: Rc<Expr<'a>>,
-        venv: Env<&'a str, Self>,
+        venv: Env<ID, Self>,
     },
 }
 
@@ -64,28 +64,28 @@ impl WithSpan<Value<'_>> {
 }
 
 struct VM<'a> {
-    venv: Env<&'a str, Value<'a>>,
+    venv: Env<ID, Value<'a>>,
 }
 
 impl<'a> VM<'a> {
-    fn new() -> Self {
+    fn new(mut syms: Symbols) -> Self {
         let mut venv = Env::new();
-        venv.unchecked_insert("print", Value::Print);
-        venv.unchecked_insert("flush", Value::Flush);
-        venv.unchecked_insert("getchar", Value::GetChar);
-        venv.unchecked_insert("ord", Value::Ord);
-        venv.unchecked_insert("chr", Value::Chr);
-        venv.unchecked_insert("size", Value::Size);
-        venv.unchecked_insert("substring", Value::SubString);
-        venv.unchecked_insert("concat", Value::Concat);
-        venv.unchecked_insert("not", Value::Not);
-        venv.unchecked_insert("exit", Value::Exit);
+        venv.unchecked_insert(syms.get("print").id, Value::Print);
+        venv.unchecked_insert(syms.get("flush").id, Value::Flush);
+        venv.unchecked_insert(syms.get("getchar").id, Value::GetChar);
+        venv.unchecked_insert(syms.get("ord").id, Value::Ord);
+        venv.unchecked_insert(syms.get("chr").id, Value::Chr);
+        venv.unchecked_insert(syms.get("size").id, Value::Size);
+        venv.unchecked_insert(syms.get("substring").id, Value::SubString);
+        venv.unchecked_insert(syms.get("concat").id, Value::Concat);
+        venv.unchecked_insert(syms.get("not").id, Value::Not);
+        venv.unchecked_insert(syms.get("exit").id, Value::Exit);
         Self { venv }
     }
 
     fn eval_lvalue(&mut self, lvalue: &LValue<'a>) -> Result<&mut Value<'a>, Error> {
         match &lvalue.access {
-            Access::Var(var) => Ok(self.venv.get_mut(var).unwrap()),
+            Access::Var(var) => Ok(self.venv.find_mut(&var.id).unwrap()),
             Access::Field(lvalue, field, offset) => match self.eval_lvalue(lvalue)? {
                 Value::Record(fields) => Ok(unsafe { Rc::get_mut_unchecked(fields) }
                     .get_mut(*offset)
@@ -112,19 +112,22 @@ impl<'a> VM<'a> {
             self.venv.push();
             for decl in batch {
                 match decl {
-                    Decl::Var { name, expr, .. } => {
+                    Decl::Var { symbol, expr, .. } => {
                         let value = self.eval(expr)?;
-                        self.venv.unchecked_insert(name, value);
+                        self.venv.unchecked_insert(symbol.id, value);
                     }
                     Decl::Fun {
-                        name, fields, body, ..
+                        symbol,
+                        fields,
+                        body,
+                        ..
                     } => {
                         self.venv.unchecked_insert(
-                            name,
+                            symbol.id,
                             Value::Fun {
                                 fields: fields
                                     .iter()
-                                    .map(|field| field.name)
+                                    .map(|field| field.symbol)
                                     .collect::<Vec<_>>()
                                     .into(),
                                 body: body.clone().unwrap(),
@@ -234,7 +237,7 @@ impl<'a> VM<'a> {
                 Ok(Value::Unit)
             }
             Expr::For {
-                name,
+                symbol,
                 begin,
                 end,
                 body,
@@ -243,7 +246,7 @@ impl<'a> VM<'a> {
                 let end = self.eval(end)?.int();
                 self.venv.push();
                 for i in begin..=end {
-                    self.venv.unchecked_insert(name, Value::Int(i));
+                    self.venv.unchecked_insert(symbol.id, Value::Int(i));
                     match self.eval(body) {
                         Err(Error::Break) => break,
                         other => other?,
@@ -261,8 +264,8 @@ impl<'a> VM<'a> {
                 }
                 Ok(value)
             }
-            Expr::Call { name, args, .. } => {
-                let fun = self.venv.get(name).unwrap().clone();
+            Expr::Call { symbol, args, .. } => {
+                let fun = self.venv.find(&symbol.id).unwrap().clone();
                 let mut args = args.iter();
                 match fun {
                     Value::Print => {
@@ -272,7 +275,7 @@ impl<'a> VM<'a> {
                     Value::Flush => {
                         std::io::stdout()
                             .flush()
-                            .map_err(|error| name.with_inner(ErrorVariant::IOError(error)))?;
+                            .map_err(|error| symbol.with_inner(ErrorVariant::IOError(error)))?;
                         Ok(Value::Unit)
                     }
                     Value::GetChar => {
@@ -280,7 +283,7 @@ impl<'a> VM<'a> {
                         Ok(Value::String(
                             if std::io::stdin()
                                 .read(&mut buf[..])
-                                .map_err(|error| name.with_inner(ErrorVariant::IOError(error)))?
+                                .map_err(|error| symbol.with_inner(ErrorVariant::IOError(error)))?
                                 == 0
                             {
                                 Cow::Borrowed("")
@@ -299,7 +302,7 @@ impl<'a> VM<'a> {
                     )),
                     Value::Chr => Ok(Value::String(Cow::Owned(String::from(char::from(
                         u8::try_from(self.eval(args.next().unwrap())?.int()).map_err(|error| {
-                            name.with_inner(ErrorVariant::TryFromIntError(error))
+                            symbol.with_inner(ErrorVariant::TryFromIntError(error))
                         })?,
                     ))))),
                     Value::Size => Ok(Value::Int(
@@ -308,7 +311,7 @@ impl<'a> VM<'a> {
                             .len()
                             .try_into()
                             .map_err(|error| {
-                                name.with_inner(ErrorVariant::TryFromIntError(error))
+                                symbol.with_inner(ErrorVariant::TryFromIntError(error))
                             })?,
                     )),
                     Value::SubString => {
@@ -335,7 +338,7 @@ impl<'a> VM<'a> {
                             .int()
                             .try_into()
                             .map_err(|error| {
-                                name.with_inner(ErrorVariant::TryFromIntError(error))
+                                symbol.with_inner(ErrorVariant::TryFromIntError(error))
                             })?,
                     ),
                     Value::Fun {
@@ -345,7 +348,7 @@ impl<'a> VM<'a> {
                     } => {
                         venv.push();
                         for (param, arg) in fields.iter().zip(args) {
-                            venv.unchecked_insert(param, self.eval(arg)?);
+                            venv.unchecked_insert(param.id, self.eval(arg)?);
                         }
                         VM { venv }.eval(&body)
                     }
@@ -373,6 +376,6 @@ impl<'a> VM<'a> {
     }
 }
 
-pub fn eval<'a>(expr: &'a Expr) -> Result<Value<'a>, Error> {
-    VM::new().eval(expr)
+pub fn eval<'a>(expr: &'a Expr, syms: Symbols) -> Result<Value<'a>, Error> {
+    VM::new(syms).eval(expr)
 }

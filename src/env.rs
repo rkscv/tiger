@@ -88,21 +88,9 @@ impl<V> Env<&str, V>
 where
     V: Clone,
 {
-    pub fn get<I>(&self, name: &WithSpan<I>) -> Result<&V, Error>
-    where
-        I: Borrow<str> + ToString,
-    {
+    pub fn get(&self, name: &WithSpan<&str>) -> Result<&V, Error> {
         Ok(self
-            .find(name.inner.borrow())
-            .ok_or_else(|| name.map(ErrorVariant::NotDefined))?)
-    }
-
-    pub fn get_mut<I>(&mut self, name: &WithSpan<I>) -> Result<&mut V, Error>
-    where
-        I: Borrow<str> + ToString,
-    {
-        Ok(self
-            .find_mut(name.inner.borrow())
+            .find(name.inner)
             .ok_or_else(|| name.map(ErrorVariant::NotDefined))?)
     }
 }

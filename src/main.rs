@@ -11,8 +11,8 @@ struct Args {
 }
 
 fn exec(src: &str) -> Result<(), Error> {
-    let ast = parser::parse(src)?;
-    vm::eval(&ast)?;
+    let (ast, syms) = parser::parse(src)?;
+    vm::eval(&ast, syms)?;
     Ok(())
 }
 

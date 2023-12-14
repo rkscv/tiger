@@ -1,6 +1,7 @@
 use crate::{
     ast::{
-        Access, ArcType, Decl, Expr, Field, LValue, Op, Span, Type, WithSpan, INT, STRING, UNIT,
+        Access, ArcType, Decl, Expr, Field, LValue, Op, Span, Symbols, Type, WithSpan, INT, STRING,
+        UNIT,
     },
     env::Env,
     error::{Error, ErrorVariant},
@@ -36,28 +37,10 @@ lazy_static::lazy_static! {
     };
 }
 
-fn parse_fields(pair: Pair<Rule>) -> Result<Vec<Field>, Error> {
-    let mut pairs = pair.into_inner();
-    let mut fields = Vec::new();
-    let mut names = HashSet::new();
-    while let Some(field) = pairs.next() {
-        if !names.insert(field.as_str()) {
-            Err(WithSpan {
-                span: (&field).into(),
-                inner: ErrorVariant::DuplicateDefinitions(field.to_string()),
-            })?;
-        }
-        fields.push(Field {
-            name: field.as_str(),
-            ty: pairs.next().unwrap().into(),
-        });
-    }
-    Ok(fields)
-}
-
 struct Envs<'a> {
     tenv: Env<&'a str, ArcType<'a>>,
     venv: Env<&'a str, ArcType<'a>>,
+    syms: Symbols<'a>,
 }
 
 impl<'a> Envs<'a> {
@@ -93,7 +76,11 @@ impl<'a> Envs<'a> {
         fun!(not, (int) => int);
         fun!(exit, (int) => unit);
 
-        Self { tenv, venv }
+        Self {
+            tenv,
+            venv,
+            syms: Symbols::new(),
+        }
     }
 
     fn check_ty_decls(&mut self) -> Result<(), Error> {
@@ -146,7 +133,7 @@ impl<'a> Envs<'a> {
                 self.venv.push();
                 for field in fields {
                     self.venv
-                        .unchecked_insert(field.name, self.tenv.get(&field.ty)?.clone());
+                        .unchecked_insert(field.symbol.name, self.tenv.get(&field.ty)?.clone());
                 }
                 let expr = self.parse_with_span(raw_body.take().unwrap(), false)?;
                 expr.expect(ret_ty)?;
@@ -157,12 +144,28 @@ impl<'a> Envs<'a> {
         Ok(())
     }
 
+    fn parse_fields(&mut self, pair: Pair<'a, Rule>) -> Result<Vec<Field<'a>>, Error> {
+        let mut pairs = pair.into_inner();
+        let mut fields = Vec::new();
+        let mut names = HashSet::new();
+        while let Some(field) = pairs.next() {
+            if !names.insert(field.as_str()) {
+                return Err(WithSpan::from(field).map(ErrorVariant::DuplicateDefinitions))?;
+            }
+            fields.push(Field {
+                symbol: self.syms.get(field.as_str()),
+                ty: pairs.next().unwrap().into(),
+            });
+        }
+        Ok(fields)
+    }
+
     fn parse_lvalue(&mut self, pair: Pair<'a, Rule>, breakable: bool) -> Result<LValue<'a>, Error> {
         let mut pairs = pair.into_inner();
         let var = pairs.next().unwrap().into();
         let mut lvalue = LValue {
             ty: self.venv.get(&var)?.clone(),
-            access: Access::Var(var),
+            access: Access::Var(var.with_inner(self.syms.get(&var))),
         };
         for suffix in pairs {
             lvalue = match suffix.as_rule() {
@@ -341,7 +344,7 @@ impl<'a> Envs<'a> {
                     arg.expect(field)?;
                 }
                 Ok(Expr::Call {
-                    name,
+                    symbol: name.with_inner(self.syms.get(&name)),
                     args,
                     ret_ty: ret_ty.clone(),
                 })
@@ -444,7 +447,7 @@ impl<'a> Envs<'a> {
                 body.expect(&UNIT)?;
                 self.venv.pop();
                 Ok(Expr::For {
-                    name,
+                    symbol: self.syms.get(name),
                     begin: begin.inner.into(),
                     end: end.inner.into(),
                     body: body.inner.into(),
@@ -520,10 +523,23 @@ impl<'a> Envs<'a> {
                                     .into(),
                                     Rule::record_ty => Type::Record {
                                         name: &name,
-                                        fields: parse_fields(ty.into_inner().next().unwrap())?
-                                            .into_iter()
-                                            .map(|field| (field.name, get(field.ty)))
-                                            .collect(),
+                                        fields: {
+                                            let mut pairs =
+                                                ty.into_inner().next().unwrap().into_inner();
+                                            let mut fields = Vec::new();
+                                            let mut names = HashSet::new();
+                                            while let Some(field) = pairs.next() {
+                                                if !names.insert(field.as_str()) {
+                                                    return Err(WithSpan::from(field)
+                                                        .map(ErrorVariant::DuplicateDefinitions))?;
+                                                }
+                                                fields.push((
+                                                    field.as_str(),
+                                                    get(pairs.next().unwrap().into()),
+                                                ));
+                                            }
+                                            fields
+                                        },
                                     }
                                     .into(),
                                     _ => unreachable!(),
@@ -548,7 +564,7 @@ impl<'a> Envs<'a> {
                             let name: WithSpan<_> = pairs.next().unwrap().into();
                             let pair = pairs.next().unwrap();
                             decls.last_mut().unwrap().push(Decl::Var {
-                                name: name.inner,
+                                symbol: self.syms.get(&name),
                                 expr: match pair.as_rule() {
                                     Rule::ident => {
                                         let expr =
@@ -583,7 +599,7 @@ impl<'a> Envs<'a> {
                             }
                             let mut pairs = pair.into_inner();
                             let name = pairs.next().unwrap().into();
-                            let fields = parse_fields(pairs.next().unwrap())?;
+                            let fields = self.parse_fields(pairs.next().unwrap())?;
                             let pair = pairs.next().unwrap();
                             let (ret_ty, raw_body) = match pair.as_rule() {
                                 Rule::ident => {
@@ -604,7 +620,7 @@ impl<'a> Envs<'a> {
                                 .into(),
                             )?;
                             decls.last_mut().unwrap().push(Decl::Fun {
-                                name: name.inner,
+                                symbol: self.syms.get(&name),
                                 fields,
                                 ret_ty,
                                 raw_body: Some(raw_body),
@@ -635,16 +651,20 @@ impl<'a> Envs<'a> {
     }
 }
 
-pub fn parse(src: &str) -> Result<Expr, Error> {
-    Envs::new().parse(
-        TigerParser::parse(Rule::main, src)
-            .map_err(Box::new)
-            .map_err(Error::ParseError)?
-            .next()
-            .unwrap()
-            .into_inner()
-            .next()
-            .unwrap(),
-        false,
-    )
+pub fn parse(src: &str) -> Result<(Expr, Symbols), Error> {
+    let mut envs = Envs::new();
+    Ok((
+        envs.parse(
+            TigerParser::parse(Rule::main, src)
+                .map_err(Box::new)
+                .map_err(Error::ParseError)?
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap(),
+            false,
+        )?,
+        envs.syms,
+    ))
 }

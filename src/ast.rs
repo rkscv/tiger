@@ -2,16 +2,18 @@ use crate::{
     error::{Error, ErrorVariant},
     parser::Rule,
 };
+use lazy_static::lazy_static;
 use pest::{iterators::Pair, RuleType};
 use std::{
     borrow::Cow,
-    fmt::Display,
-    ops::{Deref, DerefMut},
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+    ops::{Deref, DerefMut, RangeFrom},
     rc::Rc,
     sync::Arc,
 };
 
-lazy_static::lazy_static! {
+lazy_static! {
     pub static ref UNIT: ArcType<'static> = Type::Unit.into();
     pub static ref NIL: ArcType<'static> = Type::Nil.into();
     pub static ref INT: ArcType<'static> = Type::Int.into();
@@ -35,7 +37,7 @@ pub enum Op {
 }
 
 impl Display for Op {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.write_str(match self {
             Self::Add => "+",
             Self::Sub => "-",
@@ -53,20 +55,57 @@ impl Display for Op {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Field<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ID(usize);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Symbol<'a> {
     pub name: &'a str,
+    pub id: ID,
+}
+
+pub struct Symbols<'a> {
+    symbols: HashMap<&'a str, ID>,
+    ids: RangeFrom<usize>,
+}
+
+impl<'a> Symbols<'a> {
+    pub fn new() -> Self {
+        Self {
+            symbols: HashMap::new(),
+            ids: 0..,
+        }
+    }
+
+    pub fn get(&mut self, name: &'a str) -> Symbol<'a> {
+        let id = *self
+            .symbols
+            .entry(name)
+            .or_insert_with(|| ID(self.ids.next().unwrap()));
+        Symbol { name, id }
+    }
+}
+
+impl Default for Symbols<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Field<'a> {
+    pub symbol: Symbol<'a>,
     pub ty: WithSpan<&'a str>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Decl<'a> {
     Var {
-        name: &'a str,
+        symbol: Symbol<'a>,
         expr: Box<Expr<'a>>,
     },
     Fun {
-        name: &'a str,
+        symbol: Symbol<'a>,
         fields: Vec<Field<'a>>,
         ret_ty: ArcType<'a>,
         raw_body: Option<Pair<'a, Rule>>,
@@ -76,7 +115,7 @@ pub enum Decl<'a> {
 
 #[derive(Debug, Clone)]
 pub enum Access<'a> {
-    Var(WithSpan<&'a str>),
+    Var(WithSpan<Symbol<'a>>),
     Field(Box<LValue<'a>>, WithSpan<&'a str>, usize),
     Index(Box<LValue<'a>>, Box<WithSpan<Expr<'a>>>),
 }
@@ -88,9 +127,9 @@ pub struct LValue<'a> {
 }
 
 impl Display for LValue<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self.access {
-            Access::Var(var) => f.write_str(var),
+            Access::Var(var) => f.write_str(var.name),
             Access::Field(lvalue, field, _) => {
                 lvalue.fmt(f)?;
                 f.write_str(".")?;
@@ -137,7 +176,7 @@ pub enum Expr<'a> {
         body: Box<Self>,
     },
     For {
-        name: &'a str,
+        symbol: Symbol<'a>,
         begin: Box<Self>,
         end: Box<Self>,
         body: Box<Self>,
@@ -147,7 +186,7 @@ pub enum Expr<'a> {
         expr: Box<Self>,
     },
     Call {
-        name: WithSpan<&'a str>,
+        symbol: WithSpan<Symbol<'a>>,
         args: Vec<WithSpan<Self>>,
         ret_ty: ArcType<'a>,
     },
@@ -189,7 +228,7 @@ impl<'a> Expr<'a> {
 pub struct ArcType<'a>(Arc<Type<'a>>);
 
 impl Display for ArcType<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.write_str(match &*self.0 {
             Type::Unit => "unit",
             Type::Int => "int",
